@@ -1,8 +1,9 @@
-﻿using UnityEngine;
+using UnityEngine;
 
 /// <summary>
-/// Контроллер свободного прицеливания в пределах экранной мертвой зоны (Deadzone Aiming).
-/// Оружие двигается свободно до границ мертвой зоны, после чего начинает поворачиваться камера и тело.
+/// Контроллер тактического свободного прицеливания (Deadzone Free-Aim).
+/// Оружие свободно отклоняется внутри мертвой зоны экрана, опережая камеру,
+/// а корпус и камера следуют за взглядом с естественной инерцией.
 /// </summary>
 public class DeadzoneAimController : MonoBehaviour
 {
@@ -16,31 +17,28 @@ public class DeadzoneAimController : MonoBehaviour
     [Tooltip("Pivot оружия, который вращается внутри мертвой зоны")]
     [SerializeField] private Transform weaponRigPivot;
 
-    [Tooltip("Transform рига камеры для наклона по вертикали (Pitch)")]
-    [SerializeField] private Transform cameraRigTransform;
-
     [Header("Границы Deadzone (в градусах)")]
-    [Tooltip("Максимальный угол отклонения ствола влево/вправо до поворота корпуса")]
-    [SerializeField] [Range(2f, 25f)] private float maxDeadzoneYaw = 14f;
+    [Tooltip("Максимальный угол свободного отклонения ствола влево/вправо")]
+    [SerializeField] [Range(2f, 25f)] private float maxDeadzoneYaw = 12f;
 
-    [Tooltip("Максимальный угол отклонения ствола вверх/вниз до наклона камеры")]
-    [SerializeField] [Range(2f, 20f)] private float maxDeadzonePitch = 10f;
+    [Tooltip("Максимальный угол свободного отклонения ствола вверх/вниз")]
+    [SerializeField] [Range(2f, 20f)] private float maxDeadzonePitch = 8f;
 
-    [Header("Динамика доводки и возврата")]
-    [Tooltip("Коэффициент сглаживания движения оружия")]
-    [SerializeField] private float weaponTrackingSpeed = 35f;
+    [Header("Коэффициенты отклика")]
+    [Tooltip("Доля поворота тела при движении мыши внутри мертвой зоны")]
+    [SerializeField] [Range(0.2f, 1f)] private float bodyFollowRatio = 0.65f;
 
-    [Tooltip("Скорость автоматического центрирования оружия при движении вперед")]
-    [SerializeField] private float centeringSpeed = 3.5f;
+    [Tooltip("Скорость доводки оружия")]
+    [SerializeField] private float weaponTrackingSpeed = 28f;
 
-    [Tooltip("Вертикальные лимиты наклона взгляда (Pitch Clamping)")]
-    [SerializeField] private Vector2 verticalLookLimits = new Vector2(-75f, 75f);
+    [Tooltip("Скорость автоцентрирования оружия при ходьбе")]
+    [SerializeField] private float autoCenterSpeed = 4.0f;
 
+    // Текущие локальные углы свободного прицела оружия
     private float currentWeaponYaw;
     private float currentWeaponPitch;
     private float targetWeaponYaw;
     private float targetWeaponPitch;
-    private float cameraPitchAngle;
 
     public float WeaponYaw => currentWeaponYaw;
     public float WeaponPitch => currentWeaponPitch;
@@ -53,11 +51,6 @@ public class DeadzoneAimController : MonoBehaviour
             currentWeaponYaw = targetWeaponYaw = NormalizeAngle(angles.y);
             currentWeaponPitch = targetWeaponPitch = NormalizeAngle(angles.x);
         }
-
-        if (cameraRigTransform != null)
-        {
-            cameraPitchAngle = NormalizeAngle(cameraRigTransform.localEulerAngles.x);
-        }
     }
 
     private void Update()
@@ -67,61 +60,52 @@ public class DeadzoneAimController : MonoBehaviour
 
     private void ProcessAiming()
     {
-        if (inputHandler == null || weaponRigPivot == null) return;
+        if (inputHandler == null || weaponRigPivot == null || playerController == null) return;
 
         Vector2 look = inputHandler.LookDelta;
 
-        targetWeaponYaw += look.x;
-        targetWeaponPitch -= look.y;
+        // 1. Поворот тела: сразу отдает часть дельты мыши на поворот тела,
+        // чтобы камера всегда отзывчиво реагировала на движение мыши
+        float directBodyYaw = look.x * bodyFollowRatio;
+        playerController.RotateBodyYaw(directBodyYaw);
 
-        if (inputHandler.MoveInput.sqrMagnitude > 0.1f)
+        // 2. Оставшаяся часть дельты накапливается в стволе как опережение прицела
+        float weaponYawDelta = look.x * (1f - bodyFollowRatio);
+        targetWeaponYaw += weaponYawDelta;
+        targetWeaponPitch -= look.y * 0.45f;
+
+        // 3. Автоцентрирование оружия при перемещении
+        if (inputHandler.MoveInput.sqrMagnitude > 0.05f)
         {
-            float centerDecay = 1f - Mathf.Exp(-centeringSpeed * Time.deltaTime);
+            float centerDecay = 1f - Mathf.Exp(-autoCenterSpeed * Time.deltaTime);
             targetWeaponYaw = Mathf.Lerp(targetWeaponYaw, 0f, centerDecay);
             targetWeaponPitch = Mathf.Lerp(targetWeaponPitch, 0f, centerDecay);
         }
 
-        float excessYaw = 0f;
+        // 4. Ограничение углов в пределах Deadzone
+        // Если ствол упирается в границу мертвой зоны, весь остаток мыши разворачивает тело
         if (targetWeaponYaw > maxDeadzoneYaw)
         {
-            excessYaw = targetWeaponYaw - maxDeadzoneYaw;
+            float excess = targetWeaponYaw - maxDeadzoneYaw;
             targetWeaponYaw = maxDeadzoneYaw;
+            playerController.RotateBodyYaw(excess);
         }
         else if (targetWeaponYaw < -maxDeadzoneYaw)
         {
-            excessYaw = targetWeaponYaw + maxDeadzoneYaw;
+            float excess = targetWeaponYaw + maxDeadzoneYaw;
             targetWeaponYaw = -maxDeadzoneYaw;
+            playerController.RotateBodyYaw(excess);
         }
 
-        float excessPitch = 0f;
-        if (targetWeaponPitch > maxDeadzonePitch)
-        {
-            excessPitch = targetWeaponPitch - maxDeadzonePitch;
-            targetWeaponPitch = maxDeadzonePitch;
-        }
-        else if (targetWeaponPitch < -maxDeadzonePitch)
-        {
-            excessPitch = targetWeaponPitch + maxDeadzonePitch;
-            targetWeaponPitch = -maxDeadzonePitch;
-        }
+        targetWeaponPitch = Mathf.Clamp(targetWeaponPitch, -maxDeadzonePitch, maxDeadzonePitch);
 
-        if (Mathf.Abs(excessYaw) > Mathf.Epsilon && playerController != null)
-        {
-            playerController.RotateBodyYaw(excessYaw);
-        }
+        // 5. Плавная интерполяция вращения оружия
+        float blend = 1f - Mathf.Exp(-weaponTrackingSpeed * Time.deltaTime);
+        currentWeaponYaw = Mathf.Lerp(currentWeaponYaw, targetWeaponYaw, blend);
+        currentWeaponPitch = Mathf.Lerp(currentWeaponPitch, targetWeaponPitch, blend);
 
-        if (Mathf.Abs(excessPitch) > Mathf.Epsilon && cameraRigTransform != null)
-        {
-            cameraPitchAngle -= excessPitch;
-            cameraPitchAngle = Mathf.Clamp(cameraPitchAngle, verticalLookLimits.x, verticalLookLimits.y);
-            cameraRigTransform.localRotation = Quaternion.Euler(cameraPitchAngle, 0f, 0f);
-        }
-
-        float weaponBlend = 1f - Mathf.Exp(-weaponTrackingSpeed * Time.deltaTime);
-        currentWeaponYaw = Mathf.Lerp(currentWeaponYaw, targetWeaponYaw, weaponBlend);
-        currentWeaponPitch = Mathf.Lerp(currentWeaponPitch, targetWeaponPitch, weaponBlend);
-
-        float subtleRoll = -currentWeaponYaw * 0.15f;
+        // Легкий Z-Roll (крен оружия при боковом прицеливании)
+        float subtleRoll = -currentWeaponYaw * 0.2f;
         weaponRigPivot.localRotation = Quaternion.Euler(currentWeaponPitch, currentWeaponYaw, subtleRoll);
     }
 
@@ -132,11 +116,10 @@ public class DeadzoneAimController : MonoBehaviour
         return angle;
     }
 
-    public void SetupReferences(PlayerInputHandler input, BodycamPlayerController player, Transform weaponPivot, Transform cameraRig)
+    public void SetupReferences(PlayerInputHandler input, BodycamPlayerController player, Transform weaponPivot)
     {
         inputHandler = input;
         playerController = player;
         weaponRigPivot = weaponPivot;
-        cameraRigTransform = cameraRig;
     }
 }
