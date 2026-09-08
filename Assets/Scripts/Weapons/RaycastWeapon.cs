@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 
 /// <summary>
 /// Основной компонент огнестрельного оружия на Raycast-баллистике.
@@ -17,6 +17,8 @@ public class RaycastWeapon : MonoBehaviour
 
     [Tooltip("Урон от одного попадания")]
     [SerializeField] private float damage = 35f;
+
+    public float Damage => damage;
 
     [Tooltip("Максимальная эффективная дистанция стрельбы (м)")]
     [SerializeField] private float maxRange = 120f;
@@ -153,11 +155,14 @@ public class RaycastWeapon : MonoBehaviour
 
     private void ProcessHit(RaycastHit hit)
     {
+        // Передаем урон компонентам цели
+        hit.collider.SendMessage("ApplyDamage", damage, SendMessageOptions.DontRequireReceiver);
+
         // Применяем физический импульс Rigidbody, если объект подвижный
         Rigidbody rb = hit.rigidbody;
         if (rb != null && !rb.isKinematic)
         {
-            rb.AddForceAtPosition(-hit.normal * 12f, hit.point, ForceMode.Impulse);
+            rb.AddForceAtPosition(-hit.normal * (damage * 0.35f), hit.point, ForceMode.Impulse);
         }
 
         // Создаем маркер попадания (спарк/вспышку) в точке удара
