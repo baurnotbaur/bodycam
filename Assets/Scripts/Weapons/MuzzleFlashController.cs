@@ -1,8 +1,9 @@
-﻿using UnityEngine;
+using UnityEngine;
 
 /// <summary>
 /// Контроллер тактического дульного огня (Muzzle Flash).
 /// Создает динамическое освещение окружения импульсом света и короткой вспышкой.
+/// Не зависит от внешних тяжелых сборок частиц, что гарантирует мгновенную компиляцию.
 /// </summary>
 public class MuzzleFlashController : MonoBehaviour
 {
@@ -10,8 +11,8 @@ public class MuzzleFlashController : MonoBehaviour
     [Tooltip("Точечный источник света для освещения стен/пола")]
     [SerializeField] private Light muzzleLight;
 
-    [Tooltip("Партикловая система вспышки или объект меша вспышки")]
-    [SerializeField] private ParticleSystem muzzleParticles;
+    [Tooltip("Объект визуального эффекта вспышки (меш, спрайт или квад)")]
+    [SerializeField] private GameObject muzzleFlashVisual;
 
     [Header("Параметры вспышки")]
     [Tooltip("Длительность свечения точечного источника (секунды)")]
@@ -29,6 +30,11 @@ public class MuzzleFlashController : MonoBehaviour
             muzzleLight.enabled = false;
             muzzleLight.intensity = lightIntensity;
         }
+
+        if (muzzleFlashVisual != null)
+        {
+            muzzleFlashVisual.SetActive(false);
+        }
     }
 
     private void Update()
@@ -36,9 +42,10 @@ public class MuzzleFlashController : MonoBehaviour
         if (lightTimer > 0f)
         {
             lightTimer -= Time.deltaTime;
-            if (lightTimer <= 0f && muzzleLight != null)
+            if (lightTimer <= 0f)
             {
-                muzzleLight.enabled = false;
+                if (muzzleLight != null) muzzleLight.enabled = false;
+                if (muzzleFlashVisual != null) muzzleFlashVisual.SetActive(false);
             }
         }
     }
@@ -48,22 +55,25 @@ public class MuzzleFlashController : MonoBehaviour
     /// </summary>
     public void TriggerFlash()
     {
-        if (muzzleParticles != null)
+        if (muzzleFlashVisual != null)
         {
-            muzzleParticles.Play(true);
+            // Случайный поворот вспышки для реалистичности каждого выстрела
+            muzzleFlashVisual.transform.localRotation = Quaternion.Euler(0f, 0f, Random.Range(0f, 360f));
+            muzzleFlashVisual.SetActive(true);
         }
 
         if (muzzleLight != null)
         {
             muzzleLight.enabled = true;
             muzzleLight.intensity = lightIntensity * Random.Range(0.85f, 1.15f);
-            lightTimer = flashDuration;
         }
+
+        lightTimer = flashDuration;
     }
 
-    public void SetupReferences(Light lightComp, ParticleSystem particles)
+    public void SetupReferences(Light lightComp, GameObject visualObj = null)
     {
         muzzleLight = lightComp;
-        muzzleParticles = particles;
+        muzzleFlashVisual = visualObj;
     }
 }
