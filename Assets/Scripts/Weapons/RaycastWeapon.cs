@@ -88,6 +88,13 @@ public class RaycastWeapon : MonoBehaviour
     [Tooltip("Локальный наклон вниз при Low-Ready")]
     [SerializeField] private Vector3 lowReadyRotOffset = new Vector3(25f, -15f, 10f);
 
+    [Header("Кобура и смена оружия (Holster / Draw)")]
+    [Tooltip("Величина опускания оружия при уборке в кобуру")]
+    [SerializeField] private Vector3 holsterPosOffset = new Vector3(0.04f, -0.32f, -0.06f);
+
+    [Tooltip("Наклон оружия при уборке в кобуру")]
+    [SerializeField] private Vector3 holsterRotOffset = new Vector3(22f, -12f, 8f);
+
     [Tooltip("Скорость перехода между стойками")]
     [SerializeField] private float stanceTransitionSpeed = 14f;
 
@@ -110,8 +117,14 @@ public class RaycastWeapon : MonoBehaviour
     private bool hasReleasedTrigger = true;
     private bool isReloading;
     private bool isFlashlightOn;
+    private float holsterProgress = 0f; // 0 = ready, 1 = fully holstered
     private Vector3 initialBasePos;
     private Quaternion initialBaseRot;
+
+    // Кешированные материалы (предотвращение утечек памяти)
+    private static Material akBrassMat;
+    private static Material pistolBrassMat;
+    private static Material sparkMat;
 
     // Публичные свойства для HUD и систем
     public WeaponType CurrentWeaponType => weaponType;
@@ -125,18 +138,50 @@ public class RaycastWeapon : MonoBehaviour
     public bool IsFlashlightOn => isFlashlightOn;
     public bool IsAiming => inputHandler != null && inputHandler.IsAiming;
     public bool IsLowReady => inputHandler != null && inputHandler.IsRunning && inputHandler.MoveInput.sqrMagnitude > 0.05f;
+    public bool IsHolsteredOrSwitching => holsterProgress > 0.01f;
+    public float HolsterProgress => holsterProgress;
     public float Damage => damage;
     public float CurrentSpread => currentSpread;
 
+    public void SetHolsterProgress(float progress)
+    {
+        holsterProgress = Mathf.Clamp01(progress);
+    }
+
     private void Awake()
     {
-        initialBasePos = transform.localPosition;
-        initialBaseRot = transform.localRotation;
+        if (initialBasePos == Vector3.zero && transform.localPosition != Vector3.zero)
+        {
+            initialBasePos = transform.localPosition;
+            initialBaseRot = transform.localRotation;
+        }
         currentSpread = baseSpreadAngle;
+    }
+
+    private void OnEnable()
+    {
+        if (tacticalFlashlight != null)
+        {
+            tacticalFlashlight.enabled = isFlashlightOn;
+        }
+    }
+
+    private void OnDisable()
+    {
+        if (isReloading)
+        {
+            isReloading = false;
+        }
     }
 
     private void Start()
     {
+        if (initialBasePos == Vector3.zero)
+        {
+            initialBasePos = transform.localPosition;
+            initialBaseRot = transform.localRotation;
+        }
+
         if (tacticalFlashlight != null)
         {
             tacticalFlashlight.enabled = isFlashlightOn;
@@ -160,7 +205,7 @@ public class RaycastWeapon : MonoBehaviour
     }
 
     /// <summary>
-    /// Плавное позиционирование оружия между обычной стойкой, Point-Aim (ПКМ) и Low-Ready (Sprint).
+    /// Плавное позиционирование оружия между обычной стойкой, Point-Aim (ПКМ), Low-Ready (Sprint) и Holster (смена).
     /// </summary>
     private void HandleStanceTransform()
     {
@@ -178,6 +223,13 @@ public class RaycastWeapon : MonoBehaviour
             targetRot = initialBaseRot * Quaternion.Euler(aimRotOffset);
         }
 
+        // Плавный уход в кобуру при смене оружия
+        if (holsterProgress > 0.001f)
+        {
+            targetPos = Vector3.Lerp(targetPos, initialBasePos + holsterPosOffset, holsterProgress);
+            targetRot = Quaternion.Slerp(targetRot, initialBaseRot * Quaternion.Euler(holsterRotOffset), holsterProgress);
+        }
+
         float blend = 1f - Mathf.Exp(-stanceTransitionSpeed * Time.deltaTime);
         transform.localPosition = Vector3.Lerp(transform.localPosition, targetPos, blend);
         transform.localRotation = Quaternion.Slerp(transform.localRotation, targetRot, blend);
@@ -185,7 +237,8 @@ public class RaycastWeapon : MonoBehaviour
 
     private void HandleCombatInput()
     {
-        if (inputHandler == null) return;
+        // Полная блокировка ввода во время смены оружия
+        if (inputHandler == null || IsHolsteredOrSwitching) return;
 
         // Переключение фонаря (F)
         if (inputHandler.FlashlightTogglePressed)
@@ -313,6 +366,51 @@ public class RaycastWeapon : MonoBehaviour
         }
     }
 
+    private static Material GetOrCreateBrassMaterial(bool isAk)
+    {
+        if (isAk)
+        {
+            if (akBrassMat == null)
+            {
+                Shader s = Shader.Find("Universal Render Pipeline/Lit");
+                if (s == null) s = Shader.Find("Standard");
+                akBrassMat = new Material(s);
+                akBrassMat.name = "AK_Brass_Material";
+                akBrassMat.color = new Color(0.85f, 0.68f, 0.24f, 1f);
+                akBrassMat.SetFloat("_Metallic", 0.9f);
+                akBrassMat.SetFloat("_Smoothness", 0.82f);
+            }
+            return akBrassMat;
+        }
+        else
+        {
+            if (pistolBrassMat == null)
+            {
+                Shader s = Shader.Find("Universal Render Pipeline/Lit");
+                if (s == null) s = Shader.Find("Standard");
+                pistolBrassMat = new Material(s);
+                pistolBrassMat.name = "Pistol_Brass_Material";
+                pistolBrassMat.color = new Color(0.88f, 0.72f, 0.28f, 1f);
+                pistolBrassMat.SetFloat("_Metallic", 0.88f);
+                pistolBrassMat.SetFloat("_Smoothness", 0.80f);
+            }
+            return pistolBrassMat;
+        }
+    }
+
+    private static Material GetOrCreateSparkMaterial()
+    {
+        if (sparkMat == null)
+        {
+            Shader unlit = Shader.Find("Universal Render Pipeline/Unlit");
+            if (unlit == null) unlit = Shader.Find("Sprites/Default");
+            sparkMat = new Material(unlit);
+            sparkMat.name = "Impact_Spark_Material";
+            sparkMat.color = new Color(1f, 0.75f, 0.2f, 1f);
+        }
+        return sparkMat;
+    }
+
     private void EjectShellCasing()
     {
         Vector3 ejectPos = ejectionPortTransform != null ? ejectionPortTransform.position : transform.position + transform.right * 0.05f;
@@ -334,17 +432,11 @@ public class RaycastWeapon : MonoBehaviour
             casingObj.transform.localScale = new Vector3(0.010f, 0.014f, 0.010f);
         }
 
-        // Латунный материал (Brass)
+        // Латунный материал (Brass) из общего кеша (без утечек памяти)
         Renderer rend = casingObj.GetComponent<Renderer>();
         if (rend != null)
         {
-            Shader litShader = Shader.Find("Universal Render Pipeline/Lit");
-            if (litShader == null) litShader = Shader.Find("Standard");
-            Material brassMat = new Material(litShader);
-            brassMat.color = new Color(0.85f, 0.68f, 0.24f, 1f);
-            brassMat.SetFloat("_Metallic", 0.9f);
-            brassMat.SetFloat("_Smoothness", 0.82f);
-            rend.material = brassMat;
+            rend.sharedMaterial = GetOrCreateBrassMaterial(weaponType == WeaponType.AK74);
         }
 
         // Коллайдер
@@ -355,15 +447,25 @@ public class RaycastWeapon : MonoBehaviour
         capCol.height = 2f;
         capCol.direction = 1; // Y-axis
 
+        // Игнорируем коллизии с телом игрока
+        CharacterController playerCC = GetComponentInParent<CharacterController>();
+        if (playerCC != null)
+        {
+            Physics.IgnoreCollision(capCol, playerCC, true);
+        }
+
         // Rigidbody и скрипт гильзы
         Rigidbody rb = casingObj.AddComponent<Rigidbody>();
         rb.mass = weaponType == WeaponType.AK74 ? 0.012f : 0.008f;
         rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
 
         ShellCasing shell = casingObj.AddComponent<ShellCasing>();
+        if (playerCC != null)
+        {
+            shell.IgnoreCollisionWith(playerCC);
+        }
 
-        // Направление выброса:
-        // АК-74 выбрасывает вверх-вправо с сильным углом
+        // Направление выброса: вправо и назад (outward and backward)
         Vector3 rightDir = ejectionPortTransform != null ? ejectionPortTransform.right : transform.right;
         Vector3 upDir = ejectionPortTransform != null ? ejectionPortTransform.up : transform.up;
         Vector3 fwdDir = ejectionPortTransform != null ? ejectionPortTransform.forward : transform.forward;
@@ -371,17 +473,17 @@ public class RaycastWeapon : MonoBehaviour
         Vector3 linearImpulse;
         if (weaponType == WeaponType.AK74)
         {
-            linearImpulse = (rightDir * 3.4f + upDir * 2.2f + fwdDir * Random.Range(-0.8f, 0.4f)) + Random.insideUnitSphere * 0.3f;
+            linearImpulse = (rightDir * Random.Range(3.0f, 4.0f) + upDir * Random.Range(1.8f, 2.6f) - fwdDir * Random.Range(0.6f, 1.4f)) + Random.insideUnitSphere * 0.2f;
         }
         else
         {
-            linearImpulse = (rightDir * 2.8f + upDir * 1.8f - fwdDir * 0.3f) + Random.insideUnitSphere * 0.25f;
+            linearImpulse = (rightDir * Random.Range(2.4f, 3.2f) + upDir * Random.Range(1.4f, 2.0f) - fwdDir * Random.Range(0.4f, 0.9f)) + Random.insideUnitSphere * 0.15f;
         }
 
         Vector3 torqueImpulse = new Vector3(
-            Random.Range(-35f, 35f),
-            Random.Range(-50f, 50f),
-            Random.Range(-35f, 35f)
+            Random.Range(-40f, 40f),
+            Random.Range(-60f, 60f),
+            Random.Range(-40f, 40f)
         );
 
         shell.Eject(linearImpulse, torqueImpulse);
@@ -431,11 +533,7 @@ public class RaycastWeapon : MonoBehaviour
         Renderer rend = spark.GetComponent<Renderer>();
         if (rend != null)
         {
-            Shader unlit = Shader.Find("Universal Render Pipeline/Unlit");
-            if (unlit == null) unlit = Shader.Find("Sprites/Default");
-            Material sparkMat = new Material(unlit);
-            sparkMat.color = new Color(1f, 0.75f, 0.2f, 1f);
-            rend.material = sparkMat;
+            rend.sharedMaterial = GetOrCreateSparkMaterial();
         }
 
         Destroy(spark, 0.12f);
@@ -530,5 +628,24 @@ public class RaycastWeapon : MonoBehaviour
         damage = dmg;
         fireMode = mode;
         canSwitchFireMode = canSwitch;
+    }
+
+    public void ConfigureStanceOffsets(
+        Vector3 aimPos, Vector3 aimRot,
+        Vector3 lowReadyPos, Vector3 lowReadyRot,
+        Vector3 holsterPos, Vector3 holsterRot)
+    {
+        aimPosOffset = aimPos;
+        aimRotOffset = aimRot;
+        lowReadyPosOffset = lowReadyPos;
+        lowReadyRotOffset = lowReadyRot;
+        holsterPosOffset = holsterPos;
+        holsterRotOffset = holsterRot;
+    }
+
+    public void InitializeBaseTransform(Vector3 pos, Quaternion rot)
+    {
+        initialBasePos = pos;
+        initialBaseRot = rot;
     }
 }

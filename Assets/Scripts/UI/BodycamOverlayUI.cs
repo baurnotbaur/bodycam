@@ -121,9 +121,23 @@ public class BodycamOverlayUI : MonoBehaviour
         if (metadataText == null) return;
 
         string stance = (inputHandler != null && inputHandler.IsCrouching) ? "CROUCH" : "STAND";
-        string ready = (inventoryController != null && inventoryController.ActiveWeapon != null && inventoryController.ActiveWeapon.IsAiming) 
-            ? "POINT-AIM" 
-            : ((inputHandler != null && inputHandler.IsRunning) ? "LOW-READY" : "HIGH-READY");
+        string ready;
+        if (inventoryController != null && inventoryController.IsSwitching)
+        {
+            ready = "SWITCHING";
+        }
+        else if (inventoryController != null && inventoryController.ActiveWeapon != null && inventoryController.ActiveWeapon.IsAiming) 
+        {
+            ready = "POINT-AIM";
+        }
+        else if (inventoryController != null && inventoryController.ActiveWeapon != null && inventoryController.ActiveWeapon.IsLowReady)
+        {
+            ready = "LOW-READY";
+        }
+        else
+        {
+            ready = "HIGH-READY";
+        }
 
         metadataText.text = $"{unitCallsign}\n" +
                             $"{deviceModel} // 4K/60FPS HDR\n" +
@@ -149,7 +163,11 @@ public class BodycamOverlayUI : MonoBehaviour
         string lightStatus = weapon.IsFlashlightOn ? "[LIGHT: ON]" : "[LIGHT: OFF]";
 
         string ammoDisplay;
-        if (weapon.IsReloading)
+        if (inventoryController.IsSwitching)
+        {
+            ammoDisplay = "<color=#E8941A>[EQUIPPING...]</color>";
+        }
+        else if (weapon.IsReloading)
         {
             ammoDisplay = "<color=#E8941A>[RELOADING...]</color>";
         }
@@ -179,5 +197,11 @@ public class BodycamOverlayUI : MonoBehaviour
         metadataText = metaText;
         batteryText = batText;
         weaponStatusText = wepText;
+    }
+
+    public void SetupReferences(WeaponInventoryController inventory, PlayerInputHandler input)
+    {
+        inventoryController = inventory;
+        inputHandler = input;
     }
 }

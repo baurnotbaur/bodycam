@@ -49,6 +49,8 @@ public class LaserSight : MonoBehaviour
             if (unlitShader == null) unlitShader = Shader.Find("Sprites/Default");
             
             Material mat = new Material(unlitShader);
+            mat.name = "Laser_Beam_Mat";
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", laserColor);
             mat.color = laserColor;
             lineRenderer.material = mat;
         }

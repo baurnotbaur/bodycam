@@ -27,10 +27,12 @@ public class BodycamAudioEngine : MonoBehaviour
     private AudioClip clipFlashlightClick;
     private AudioClip clipSelectorClick;
 
-    // Пул AudioSource для воспроизведения
-    private AudioSource[] audioSourcePool;
-    private int currentPoolIndex;
-    private const int PoolSize = 16;
+    // Пулы AudioSource для воспроизведения
+    private AudioSource[] playerAudioPool;
+    private AudioSource[] worldAudioPool;
+    private int currentPlayerIndex;
+    private int currentWeatherIndex;
+    private const int PoolSize = 8;
 
     private void Awake()
     {
@@ -47,18 +49,35 @@ public class BodycamAudioEngine : MonoBehaviour
 
     private void InitializeAudioSources()
     {
-        audioSourcePool = new AudioSource[PoolSize];
+        playerAudioPool = new AudioSource[PoolSize];
+        worldAudioPool = new AudioSource[PoolSize];
+
+        // 1. Источники игрока (оружие в руках, шаги, затвор) — плотный звук на микрофон бодикамеры
         for (int i = 0; i < PoolSize; i++)
         {
-            GameObject srcObj = new GameObject($"AudioSource_Pool_{i}");
+            GameObject srcObj = new GameObject($"Player_AudioSource_{i}");
             srcObj.transform.SetParent(transform, false);
             AudioSource src = srcObj.AddComponent<AudioSource>();
             src.playOnAwake = false;
-            src.spatialBlend = 0.5f; // Полу-3D для эффекта нагрудного микрофона
+            src.spatialBlend = 0.25f; // Легкий стерео-объем для нагрудного микрофона
             src.minDistance = 1f;
-            src.maxDistance = 60f;
+            src.maxDistance = 40f;
             src.rolloffMode = AudioRolloffMode.Logarithmic;
-            audioSourcePool[i] = src;
+            playerAudioPool[i] = src;
+        }
+
+        // 2. Источники окружения (звон стальных мишеней вдали, отскок гильз от стен) — полноценное 3D
+        for (int i = 0; i < PoolSize; i++)
+        {
+            GameObject worldSrcObj = new GameObject($"World_AudioSource_{i}");
+            // Не привязываем к игроку, чтобы звуки оставались в точках полигона
+            AudioSource src = worldSrcObj.AddComponent<AudioSource>();
+            src.playOnAwake = false;
+            src.spatialBlend = 0.95f; // Полное 3D позиционирование
+            src.minDistance = 2f;
+            src.maxDistance = 75f;
+            src.rolloffMode = AudioRolloffMode.Logarithmic;
+            worldAudioPool[i] = src;
         }
     }
 
@@ -435,18 +454,26 @@ public class BodycamAudioEngine : MonoBehaviour
     // -------------------------------------------------------------
     // Публичное API воспроизведения звуков
     // -------------------------------------------------------------
-    private AudioSource GetAvailableSource()
+    private AudioSource GetAvailablePlayerSource()
     {
-        if (audioSourcePool == null || audioSourcePool.Length == 0) return null;
-        AudioSource src = audioSourcePool[currentPoolIndex];
-        currentPoolIndex = (currentPoolIndex + 1) % audioSourcePool.Length;
+        if (playerAudioPool == null || playerAudioPool.Length == 0) return null;
+        AudioSource src = playerAudioPool[currentPlayerIndex];
+        currentPlayerIndex = (currentPlayerIndex + 1) % playerAudioPool.Length;
+        return src;
+    }
+
+    private AudioSource GetAvailableWorldSource()
+    {
+        if (worldAudioPool == null || worldAudioPool.Length == 0) return null;
+        AudioSource src = worldAudioPool[currentWeatherIndex];
+        currentWeatherIndex = (currentWeatherIndex + 1) % worldAudioPool.Length;
         return src;
     }
 
     public static void PlayAkShot(Vector3 pos)
     {
         if (Instance == null || Instance.clipAkShot == null) return;
-        AudioSource src = Instance.GetAvailableSource();
+        AudioSource src = Instance.GetAvailablePlayerSource();
         if (src == null) return;
         src.transform.position = pos;
         src.pitch = Random.Range(0.97f, 1.03f);
@@ -456,7 +483,7 @@ public class BodycamAudioEngine : MonoBehaviour
     public static void PlayPistolShot(Vector3 pos)
     {
         if (Instance == null || Instance.clipPistolShot == null) return;
-        AudioSource src = Instance.GetAvailableSource();
+        AudioSource src = Instance.GetAvailablePlayerSource();
         if (src == null) return;
         src.transform.position = pos;
         src.pitch = Random.Range(0.98f, 1.04f);
@@ -466,7 +493,7 @@ public class BodycamAudioEngine : MonoBehaviour
     public static void PlayDryFire(Vector3 pos)
     {
         if (Instance == null || Instance.clipDryFire == null) return;
-        AudioSource src = Instance.GetAvailableSource();
+        AudioSource src = Instance.GetAvailablePlayerSource();
         if (src == null) return;
         src.transform.position = pos;
         src.pitch = Random.Range(0.95f, 1.05f);
@@ -476,7 +503,7 @@ public class BodycamAudioEngine : MonoBehaviour
     public static void PlayMagOut(Vector3 pos)
     {
         if (Instance == null || Instance.clipMagOut == null) return;
-        AudioSource src = Instance.GetAvailableSource();
+        AudioSource src = Instance.GetAvailablePlayerSource();
         if (src == null) return;
         src.transform.position = pos;
         src.pitch = Random.Range(0.96f, 1.04f);
@@ -486,7 +513,7 @@ public class BodycamAudioEngine : MonoBehaviour
     public static void PlayMagIn(Vector3 pos)
     {
         if (Instance == null || Instance.clipMagIn == null) return;
-        AudioSource src = Instance.GetAvailableSource();
+        AudioSource src = Instance.GetAvailablePlayerSource();
         if (src == null) return;
         src.transform.position = pos;
         src.pitch = Random.Range(0.96f, 1.04f);
@@ -496,7 +523,7 @@ public class BodycamAudioEngine : MonoBehaviour
     public static void PlayBoltRack(Vector3 pos)
     {
         if (Instance == null || Instance.clipBoltRack == null) return;
-        AudioSource src = Instance.GetAvailableSource();
+        AudioSource src = Instance.GetAvailablePlayerSource();
         if (src == null) return;
         src.transform.position = pos;
         src.pitch = Random.Range(0.97f, 1.03f);
@@ -506,7 +533,7 @@ public class BodycamAudioEngine : MonoBehaviour
     public static void PlaySlideRelease(Vector3 pos)
     {
         if (Instance == null || Instance.clipSlideRelease == null) return;
-        AudioSource src = Instance.GetAvailableSource();
+        AudioSource src = Instance.GetAvailablePlayerSource();
         if (src == null) return;
         src.transform.position = pos;
         src.pitch = Random.Range(0.97f, 1.03f);
@@ -516,7 +543,7 @@ public class BodycamAudioEngine : MonoBehaviour
     public static void PlayCasingClink(Vector3 pos, float impactSpeed = 1f)
     {
         if (Instance == null || Instance.clipCasingClink == null) return;
-        AudioSource src = Instance.GetAvailableSource();
+        AudioSource src = Instance.GetAvailableWorldSource();
         if (src == null) return;
         src.transform.position = pos;
         src.pitch = Random.Range(0.92f, 1.15f); // Натуральная вариация тона латуни
@@ -529,7 +556,7 @@ public class BodycamAudioEngine : MonoBehaviour
         if (Instance == null) return;
         AudioClip clip = isRunning ? Instance.clipFootstepRun : Instance.clipFootstepWalk;
         if (clip == null) return;
-        AudioSource src = Instance.GetAvailableSource();
+        AudioSource src = Instance.GetAvailablePlayerSource();
         if (src == null) return;
         src.transform.position = pos;
         src.pitch = Random.Range(0.94f, 1.06f);
@@ -539,7 +566,7 @@ public class BodycamAudioEngine : MonoBehaviour
     public static void PlaySteelTargetGong(Vector3 pos)
     {
         if (Instance == null || Instance.clipSteelTargetGong == null) return;
-        AudioSource src = Instance.GetAvailableSource();
+        AudioSource src = Instance.GetAvailableWorldSource();
         if (src == null) return;
         src.transform.position = pos;
         src.pitch = Random.Range(0.97f, 1.03f);
@@ -549,7 +576,7 @@ public class BodycamAudioEngine : MonoBehaviour
     public static void PlayFlashlightClick(Vector3 pos)
     {
         if (Instance == null || Instance.clipFlashlightClick == null) return;
-        AudioSource src = Instance.GetAvailableSource();
+        AudioSource src = Instance.GetAvailablePlayerSource();
         if (src == null) return;
         src.transform.position = pos;
         src.pitch = Random.Range(0.95f, 1.05f);
@@ -559,7 +586,7 @@ public class BodycamAudioEngine : MonoBehaviour
     public static void PlaySelectorClick(Vector3 pos)
     {
         if (Instance == null || Instance.clipSelectorClick == null) return;
-        AudioSource src = Instance.GetAvailableSource();
+        AudioSource src = Instance.GetAvailablePlayerSource();
         if (src == null) return;
         src.transform.position = pos;
         src.pitch = Random.Range(0.95f, 1.05f);

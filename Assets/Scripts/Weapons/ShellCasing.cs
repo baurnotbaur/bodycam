@@ -36,6 +36,18 @@ public class ShellCasing : MonoBehaviour
         rb.angularVelocity = torqueImpulse;
     }
 
+    /// <summary>
+    /// Игнорирование коллизий с коллайдером игрока во избежание застревания.
+    /// </summary>
+    public void IgnoreCollisionWith(Collider targetCol)
+    {
+        Collider myCol = GetComponent<Collider>();
+        if (myCol != null && targetCol != null)
+        {
+            Physics.IgnoreCollision(myCol, targetCol, true);
+        }
+    }
+
     private void Update()
     {
         float age = Time.time - spawnTime;

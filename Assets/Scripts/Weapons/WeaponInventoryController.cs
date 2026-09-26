@@ -26,9 +26,6 @@ public class WeaponInventoryController : MonoBehaviour
     [Tooltip("Время подъема нового оружия (сек)")]
     [SerializeField] private float drawDuration = 0.26f;
 
-    [Tooltip("Величина опускания оружия вниз при кобуре")]
-    [SerializeField] private float holsterDropDistance = 0.32f;
-
     private int activeIndex = 0;
     private bool isSwitching = false;
     private Vector3[] defaultLocalPositions;
@@ -65,6 +62,8 @@ public class WeaponInventoryController : MonoBehaviour
             if (weapons[i] != null)
             {
                 defaultLocalPositions[i] = weapons[i].transform.localPosition;
+                weapons[i].InitializeBaseTransform(weapons[i].transform.localPosition, weapons[i].transform.localRotation);
+                weapons[i].SetHolsterProgress(i == activeIndex ? 0f : 1f);
                 weapons[i].gameObject.SetActive(i == activeIndex);
             }
         }
@@ -120,33 +119,28 @@ public class WeaponInventoryController : MonoBehaviour
         RaycastWeapon currentWeapon = weapons[activeIndex];
         RaycastWeapon nextWeapon = weapons[targetIndex];
 
-        // 1. Анимация опускания (Holster) текущего оружия
+        // 1. Плавная процедурная анимация опускания (Holster) текущего оружия
         if (currentWeapon != null && currentWeapon.gameObject.activeSelf)
         {
-            Vector3 startPos = currentWeapon.transform.localPosition;
-            Vector3 endPos = startPos - new Vector3(0f, holsterDropDistance, 0.05f);
             float elapsed = 0f;
-
             while (elapsed < holsterDuration)
             {
                 elapsed += Time.deltaTime;
-                float t = Mathf.SmoothStep(0f, 1f, elapsed / holsterDuration);
-                currentWeapon.transform.localPosition = Vector3.Lerp(startPos, endPos, t);
+                float t = Mathf.Clamp01(elapsed / holsterDuration);
+                currentWeapon.SetHolsterProgress(Mathf.SmoothStep(0f, 1f, t));
                 yield return null;
             }
 
-            currentWeapon.transform.localPosition = defaultLocalPositions[activeIndex];
+            currentWeapon.SetHolsterProgress(1f);
             currentWeapon.gameObject.SetActive(false);
         }
 
-        // 2. Активация нового оружия из нижнего положения
+        // 2. Активация и плавный подъем (Draw) нового оружия из нижнего положения
         activeIndex = targetIndex;
         if (nextWeapon != null)
         {
             nextWeapon.gameObject.SetActive(true);
-            Vector3 basePos = defaultLocalPositions[targetIndex];
-            Vector3 lowerPos = basePos - new Vector3(0f, holsterDropDistance, 0.05f);
-            nextWeapon.transform.localPosition = lowerPos;
+            nextWeapon.SetHolsterProgress(1f);
 
             // Звук экипировки / тактического сброса
             BodycamAudioEngine.PlaySelectorClick(nextWeapon.transform.position);
@@ -155,12 +149,12 @@ public class WeaponInventoryController : MonoBehaviour
             while (elapsed < drawDuration)
             {
                 elapsed += Time.deltaTime;
-                float t = Mathf.SmoothStep(0f, 1f, elapsed / drawDuration);
-                nextWeapon.transform.localPosition = Vector3.Lerp(lowerPos, basePos, t);
+                float t = Mathf.Clamp01(elapsed / drawDuration);
+                nextWeapon.SetHolsterProgress(Mathf.SmoothStep(1f, 0f, t));
                 yield return null;
             }
 
-            nextWeapon.transform.localPosition = basePos;
+            nextWeapon.SetHolsterProgress(0f);
         }
 
         isSwitching = false;

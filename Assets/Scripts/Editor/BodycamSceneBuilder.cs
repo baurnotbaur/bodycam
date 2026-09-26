@@ -43,9 +43,11 @@ public static class BodycamSceneBuilder
 
         // 3. Создаем Игрока с двумя детализированными стволами (АК-74 и Пистолет)
         GameObject playerRoot = CreatePlayerWithWeapons();
+        WeaponInventoryController inventory = playerRoot.GetComponent<WeaponInventoryController>();
+        PlayerInputHandler input = playerRoot.GetComponent<PlayerInputHandler>();
 
         // 4. Создаем HUD оверлей бодикамеры
-        CreateBodycamHUD();
+        CreateBodycamHUD(inventory, input);
 
         // 5. Сохраняем сцену и регистрируем в Build Settings
         string scenePath = "Assets/Scenes/BodycamPrototype.unity";
@@ -268,6 +270,7 @@ public static class BodycamSceneBuilder
         torso.transform.localScale = new Vector3(0.45f, 0.65f, 0.04f);
         torso.GetComponent<Renderer>().material = cardboardMat;
         ShootingTarget torsoTarget = torso.AddComponent<ShootingTarget>();
+        torsoTarget.SetHitZone(ShootingTarget.HitZone.Chest);
 
         // Голова (Head zone)
         GameObject head = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -277,6 +280,7 @@ public static class BodycamSceneBuilder
         head.transform.localScale = new Vector3(0.22f, 0.25f, 0.04f);
         head.GetComponent<Renderer>().material = cardboardMat;
         ShootingTarget headTarget = head.AddComponent<ShootingTarget>();
+        headTarget.SetHitZone(ShootingTarget.HitZone.Head);
     }
 
     private static void CreatePhysicsBarrel(Vector3 pos, Color col)
@@ -447,15 +451,45 @@ public static class BodycamSceneBuilder
         CreatePart(akObj.transform, "Front_Sight_Post", new Vector3(0f, 0.056f, 0.54f), new Vector3(0.026f, 0.065f, 0.035f), barrelSteelMat);
 
         // 10. Характерный двухкамерный цилиндрический дульный тормоз-компенсатор ДТК-74
-        GameObject dtk = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-        dtk.name = "DTK74_Muzzle_Brake";
-        dtk.transform.SetParent(akObj.transform, false);
-        dtk.transform.localPosition = new Vector3(0f, 0.008f, 0.63f);
-        dtk.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-        dtk.transform.localScale = new Vector3(0.036f, 0.048f, 0.036f); // Длина ~0.096м
-        Collider dtkCol = dtk.GetComponent<Collider>();
-        if (dtkCol != null) Object.DestroyImmediate(dtkCol);
-        dtk.GetComponent<Renderer>().material = dtkMat;
+        GameObject dtkRoot = new GameObject("DTK74_Muzzle_Brake");
+        dtkRoot.transform.SetParent(akObj.transform, false);
+        dtkRoot.transform.localPosition = new Vector3(0f, 0.008f, 0.63f);
+
+        // Камера 1: задняя камера расширения (увеличенный диаметр цилиндра)
+        GameObject dtkChamber1 = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        dtkChamber1.name = "DTK74_Expansion_Chamber";
+        dtkChamber1.transform.SetParent(dtkRoot.transform, false);
+        dtkChamber1.transform.localPosition = new Vector3(0f, 0f, -0.024f);
+        dtkChamber1.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        dtkChamber1.transform.localScale = new Vector3(0.038f, 0.022f, 0.038f);
+        Object.DestroyImmediate(dtkChamber1.GetComponent<Collider>());
+        dtkChamber1.GetComponent<Renderer>().material = dtkMat;
+
+        // Разделительная диафрагма / ребро-кольцо между камерами
+        GameObject dtkBaffle = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        dtkBaffle.name = "DTK74_Baffle_Collar";
+        dtkBaffle.transform.SetParent(dtkRoot.transform, false);
+        dtkBaffle.transform.localPosition = new Vector3(0f, 0f, 0f);
+        dtkBaffle.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        dtkBaffle.transform.localScale = new Vector3(0.040f, 0.006f, 0.040f);
+        Object.DestroyImmediate(dtkBaffle.GetComponent<Collider>());
+        dtkBaffle.GetComponent<Renderer>().material = dtkMat;
+
+        // Камера 2: передняя компенсационная камера с боковыми окнами
+        GameObject dtkChamber2 = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        dtkChamber2.name = "DTK74_Compensation_Chamber";
+        dtkChamber2.transform.SetParent(dtkRoot.transform, false);
+        dtkChamber2.transform.localPosition = new Vector3(0f, 0f, 0.024f);
+        dtkChamber2.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        dtkChamber2.transform.localScale = new Vector3(0.036f, 0.020f, 0.036f);
+        Object.DestroyImmediate(dtkChamber2.GetComponent<Collider>());
+        dtkChamber2.GetComponent<Renderer>().material = dtkMat;
+
+        // Боковые компенсационные вырезы/окна ДТК-74 (левое и правое)
+        CreatePart(dtkRoot.transform, "DTK74_Port_L", new Vector3(-0.019f, 0f, 0.024f), new Vector3(0.005f, 0.016f, 0.022f), steelBodyMat);
+        CreatePart(dtkRoot.transform, "DTK74_Port_R", new Vector3(0.019f, 0f, 0.024f), new Vector3(0.005f, 0.016f, 0.022f), steelBodyMat);
+        // Верхний компенсационный вырез для гашения подброса ствола
+        CreatePart(dtkRoot.transform, "DTK74_Top_Port", new Vector3(0f, 0.019f, 0.024f), new Vector3(0.012f, 0.005f, 0.016f), steelBodyMat);
 
         // 11. Боковая планка «ласточкин хвост» и коллиматорный прицел (Side Mount + Reflex Sight)
         CreatePart(akObj.transform, "Dovetail_Mount", new Vector3(-0.028f, 0.045f, 0.02f), new Vector3(0.012f, 0.09f, 0.07f), opticBodyMat);
@@ -529,6 +563,14 @@ public static class BodycamSceneBuilder
             mode: RaycastWeapon.FireMode.FullAuto,
             canSwitch: true
         );
+        weapon.ConfigureStanceOffsets(
+            aimPos: new Vector3(-0.06f, 0.04f, 0.06f),
+            aimRot: new Vector3(-1.0f, 1.5f, 2.0f),
+            lowReadyPos: new Vector3(0.02f, -0.14f, -0.05f),
+            lowReadyRot: new Vector3(25f, -15f, 10f),
+            holsterPos: new Vector3(0.04f, -0.32f, -0.06f),
+            holsterRot: new Vector3(22f, -12f, 8f)
+        );
         weapon.SetupReferences(input, muzzle.transform, ejectionPort.transform, recoil, flashCtrl, torch, null);
 
         return weapon;
@@ -541,6 +583,7 @@ public static class BodycamSceneBuilder
     {
         GameObject pistolObj = new GameObject("Weapon_TacticalPistol");
         pistolObj.transform.SetParent(parent, false);
+        pistolObj.transform.localPosition = new Vector3(0.02f, 0.03f, 0.10f); // Естественное удержание двумя руками вперед
 
         // Материалы пистолета
         Material polymerFrameMat = CreateLitMaterial(new Color(0.13f, 0.13f, 0.14f), 0.12f, 0.35f); // Полимерная рамка
@@ -549,9 +592,17 @@ public static class BodycamSceneBuilder
         Material tritiumMat = CreateUnlitMaterial(new Color(0.3f, 1f, 0.4f, 1f)); // Светящиеся тритиевые точки
 
         // 1. Полимерная рамка (Polymer Lower Frame)
-        // Рукоятка с насечкой
+        // Рукоятка
         GameObject grip = CreatePart(pistolObj.transform, "Frame_Grip", new Vector3(0f, -0.085f, -0.045f), new Vector3(0.034f, 0.125f, 0.055f), polymerFrameMat);
         grip.transform.localRotation = Quaternion.Euler(18f, 0f, 0f);
+
+        // Текстурированные боковые накладки рукоятки (Textured Grip Panels)
+        Material gripTextureMat = CreateLitMaterial(new Color(0.09f, 0.09f, 0.10f), 0.08f, 0.20f);
+        CreatePart(grip.transform, "Grip_Panel_L", new Vector3(-0.018f, 0f, 0f), new Vector3(0.004f, 0.095f, 0.044f), gripTextureMat);
+        CreatePart(grip.transform, "Grip_Panel_R", new Vector3(0.018f, 0f, 0f), new Vector3(0.004f, 0.095f, 0.044f), gripTextureMat);
+        // Передние подпальцевые выемки (Finger Grooves)
+        CreatePart(grip.transform, "Finger_Groove_1", new Vector3(0f, 0.022f, 0.028f), new Vector3(0.032f, 0.018f, 0.006f), polymerFrameMat);
+        CreatePart(grip.transform, "Finger_Groove_2", new Vector3(0f, -0.016f, 0.028f), new Vector3(0.032f, 0.018f, 0.006f), polymerFrameMat);
 
         // Хвостовик типа «бобровый хвост» (Beavertail)
         CreatePart(pistolObj.transform, "Beavertail", new Vector3(0f, -0.015f, -0.09f), new Vector3(0.032f, 0.022f, 0.045f), polymerFrameMat);
@@ -646,6 +697,14 @@ public static class BodycamSceneBuilder
             mode: RaycastWeapon.FireMode.SemiAuto,
             canSwitch: false
         );
+        weapon.ConfigureStanceOffsets(
+            aimPos: new Vector3(-0.08f, 0.05f, 0.06f),
+            aimRot: new Vector3(-0.5f, 1.2f, 1.5f),
+            lowReadyPos: new Vector3(0.01f, -0.12f, -0.06f),
+            lowReadyRot: new Vector3(28f, -10f, 6f),
+            holsterPos: new Vector3(0.03f, -0.28f, -0.05f),
+            holsterRot: new Vector3(20f, -10f, 6f)
+        );
         weapon.SetupReferences(input, muzzle.transform, ejectionPort.transform, recoil, flashCtrl, torch, slideCtrl);
 
         return weapon;
@@ -669,7 +728,7 @@ public static class BodycamSceneBuilder
     // =========================================================================
     // HUD ОВЕРЛЕЙ БОДИКАМЕРЫ
     // =========================================================================
-    private static void CreateBodycamHUD()
+    private static void CreateBodycamHUD(WeaponInventoryController inventory, PlayerInputHandler input)
     {
         GameObject canvasObj = new GameObject("Bodycam_Canvas");
         Canvas canvas = canvasObj.AddComponent<Canvas>();
@@ -761,6 +820,7 @@ public static class BodycamSceneBuilder
         wepRect.sizeDelta = new Vector2(480f, 95f);
 
         overlay.SetupUI(timeText, recText, metaText, batText, wepText);
+        overlay.SetupReferences(inventory, input);
     }
 
     private static Material CreateLitMaterial(Color col, float metallic = 0.2f, float smoothness = 0.4f)

@@ -11,6 +11,13 @@ public class ShootingTarget : MonoBehaviour
     [Header("Зона попадания этой секции")]
     [SerializeField] private HitZone zone = HitZone.Chest;
 
+    public HitZone Zone => zone;
+
+    public void SetHitZone(HitZone newZone)
+    {
+        zone = newZone;
+    }
+
     [Header("Параметры здоровья")]
     [SerializeField] private float maxHealth = 100f;
     private float currentHealth;
