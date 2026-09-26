@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 
 /// <summary>
 /// Тактический лазерный целеуказатель (Tactical Laser Sight).
@@ -55,6 +55,14 @@ public class LaserSight : MonoBehaviour
 
         lineRenderer.startColor = laserColor;
         lineRenderer.endColor = laserColor;
+    }
+
+    private void OnDisable()
+    {
+        if (laserDotTransform != null)
+        {
+            laserDotTransform.gameObject.SetActive(false);
+        }
     }
 
     private void LateUpdate()

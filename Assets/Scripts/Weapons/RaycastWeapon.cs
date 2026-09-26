@@ -1,69 +1,153 @@
+using System.Collections;
 using UnityEngine;
 
 /// <summary>
-/// Основной компонент огнестрельного оружия на Raycast-баллистике.
-/// Управляет темпом стрельбы, динамическим конусом разброса, отдачей и эффектами попадания.
+/// Продвинутый тактический контроллер огнестрельного оружия.
+/// Поддерживает:
+/// - АК-74 (5.45x39, 30 патронов, Full-Auto / Semi-Auto)
+/// - Тактический пистолет (9x19, 17 патронов, Semi-Auto, затворная задержка)
+/// - Точечное прицеливание Point-Aim (ПКМ) со снижением разброса на 70%
+/// - Стойку Sprint Low-Ready при тактическом беге
+/// - Физический выброс гильз с рикошетом и звоном латуни
+/// - Тактическую и полную перезарядку с процедурным звуковым сопровождением
+/// - Тактический фонарь и ЛЦУ
 /// </summary>
 public class RaycastWeapon : MonoBehaviour
 {
+    public enum WeaponType { AK74, Pistol }
     public enum FireMode { SemiAuto, FullAuto }
 
+    [Header("Идентификация оружия")]
+    [Tooltip("Тип оружия")]
+    [SerializeField] private WeaponType weaponType = WeaponType.AK74;
+
+    [Tooltip("Название для HUD")]
+    [SerializeField] private string weaponName = "AK-74";
+
+    [Tooltip("Калибр")]
+    [SerializeField] private string caliberName = "5.45x39 MM";
+
     [Header("Режим и темп огня")]
-    [Tooltip("Режим стрельбы")]
+    [Tooltip("Текущий режим стрельбы")]
     [SerializeField] private FireMode fireMode = FireMode.FullAuto;
+
+    [Tooltip("Возможность переключения режимов (B)")]
+    [SerializeField] private bool canSwitchFireMode = true;
 
     [Tooltip("Скорострельность в выстрелах в минуту (RPM)")]
     [SerializeField] private float roundsPerMinute = 650f;
 
     [Tooltip("Урон от одного попадания")]
-    [SerializeField] private float damage = 35f;
-
-    public float Damage => damage;
+    [SerializeField] private float damage = 42f;
 
     [Tooltip("Максимальная эффективная дистанция стрельбы (м)")]
-    [SerializeField] private float maxRange = 120f;
+    [SerializeField] private float maxRange = 150f;
+
+    [Header("Боезапас и перезарядка")]
+    [Tooltip("Вместимость магазина")]
+    [SerializeField] private int magazineCapacity = 30;
+
+    [Tooltip("Текущее количество патронов в магазине")]
+    [SerializeField] private int currentAmmo = 30;
+
+    [Tooltip("Запасные патроны в разгрузке")]
+    [SerializeField] private int reserveAmmo = 120;
+
+    [Tooltip("Время тактической перезарядки (сек)")]
+    [SerializeField] private float tacticalReloadTime = 2.2f;
+
+    [Tooltip("Время полной перезарядки при пустом патроннике (сек)")]
+    [SerializeField] private float emptyReloadTime = 2.9f;
 
     [Header("Баллистический разброс (Cone of Fire)")]
     [Tooltip("Базовый угол разброса (в градусах)")]
-    [SerializeField] private float baseSpreadAngle = 0.4f;
+    [SerializeField] private float baseSpreadAngle = 0.35f;
 
     [Tooltip("Максимальный угол разброса при непрерывной стрельбе")]
-    [SerializeField] private float maxSpreadAngle = 2.8f;
+    [SerializeField] private float maxSpreadAngle = 2.6f;
 
     [Tooltip("Прирост разброса за один выстрел")]
-    [SerializeField] private float spreadPerShot = 0.35f;
+    [SerializeField] private float spreadPerShot = 0.32f;
 
     [Tooltip("Скорость восстановления кучности (град/сек)")]
-    [SerializeField] private float spreadRecoverySpeed = 5.0f;
+    [SerializeField] private float spreadRecoverySpeed = 5.5f;
+
+    [Tooltip("Множитель разброса при прицеливании Point-Aim (уменьшение на 70%)")]
+    [SerializeField] private float aimSpreadMultiplier = 0.30f;
+
+    [Header("Тактические стойки (Позиции)")]
+    [Tooltip("Локальное смещение при Point-Aim (ПКМ)")]
+    [SerializeField] private Vector3 aimPosOffset = new Vector3(-0.06f, 0.04f, 0.06f);
+
+    [Tooltip("Локальный доворот при Point-Aim (ПКМ)")]
+    [SerializeField] private Vector3 aimRotOffset = new Vector3(-1f, 1.5f, 2f);
+
+    [Tooltip("Локальное смещение при Low-Ready (бег)")]
+    [SerializeField] private Vector3 lowReadyPosOffset = new Vector3(0.02f, -0.14f, -0.05f);
+
+    [Tooltip("Локальный наклон вниз при Low-Ready")]
+    [SerializeField] private Vector3 lowReadyRotOffset = new Vector3(25f, -15f, 10f);
+
+    [Tooltip("Скорость перехода между стойками")]
+    [SerializeField] private float stanceTransitionSpeed = 14f;
 
     [Header("Слои и коллизии")]
-    [Tooltip("Слои, по которым регистрируются попадания")]
+    [Tooltip("Слои регистрации попаданий")]
     [SerializeField] private LayerMask hitLayers = ~0;
 
     [Header("Ссылки на компоненты")]
-    [Tooltip("Скрипт захвата ввода")]
     [SerializeField] private PlayerInputHandler inputHandler;
-
-    [Tooltip("Точка среза ствола (Muzzle Point)")]
     [SerializeField] private Transform muzzleTransform;
-
-    [Tooltip("Пружинная система отдачи")]
+    [SerializeField] private Transform ejectionPortTransform;
     [SerializeField] private WeaponRecoilSpring recoilSpring;
-
-    [Tooltip("Контроллер дульной вспышки")]
     [SerializeField] private MuzzleFlashController muzzleFlash;
+    [SerializeField] private Light tacticalFlashlight;
+    [SerializeField] private PistolSlideController pistolSlide;
 
     // Внутреннее состояние
     private float nextFireTime;
     private float currentSpread;
     private bool hasReleasedTrigger = true;
+    private bool isReloading;
+    private bool isFlashlightOn;
+    private Vector3 initialBasePos;
+    private Quaternion initialBaseRot;
 
+    // Публичные свойства для HUD и систем
+    public WeaponType CurrentWeaponType => weaponType;
+    public string WeaponName => weaponName;
+    public string CaliberName => caliberName;
+    public FireMode CurrentFireMode => fireMode;
+    public int CurrentAmmo => currentAmmo;
+    public int ReserveAmmo => reserveAmmo;
+    public int MagazineCapacity => magazineCapacity;
+    public bool IsReloading => isReloading;
+    public bool IsFlashlightOn => isFlashlightOn;
+    public bool IsAiming => inputHandler != null && inputHandler.IsAiming;
+    public bool IsLowReady => inputHandler != null && inputHandler.IsRunning && inputHandler.MoveInput.sqrMagnitude > 0.05f;
+    public float Damage => damage;
     public float CurrentSpread => currentSpread;
+
+    private void Awake()
+    {
+        initialBasePos = transform.localPosition;
+        initialBaseRot = transform.localRotation;
+        currentSpread = baseSpreadAngle;
+    }
+
+    private void Start()
+    {
+        if (tacticalFlashlight != null)
+        {
+            tacticalFlashlight.enabled = isFlashlightOn;
+        }
+    }
 
     private void Update()
     {
         UpdateSpreadRecovery();
-        HandleShootingInput();
+        HandleStanceTransform();
+        HandleCombatInput();
     }
 
     private void UpdateSpreadRecovery()
@@ -75,18 +159,71 @@ public class RaycastWeapon : MonoBehaviour
         }
     }
 
-    private void HandleShootingInput()
+    /// <summary>
+    /// Плавное позиционирование оружия между обычной стойкой, Point-Aim (ПКМ) и Low-Ready (Sprint).
+    /// </summary>
+    private void HandleStanceTransform()
+    {
+        Vector3 targetPos = initialBasePos;
+        Quaternion targetRot = initialBaseRot;
+
+        if (IsLowReady)
+        {
+            targetPos = initialBasePos + lowReadyPosOffset;
+            targetRot = initialBaseRot * Quaternion.Euler(lowReadyRotOffset);
+        }
+        else if (IsAiming)
+        {
+            targetPos = initialBasePos + aimPosOffset;
+            targetRot = initialBaseRot * Quaternion.Euler(aimRotOffset);
+        }
+
+        float blend = 1f - Mathf.Exp(-stanceTransitionSpeed * Time.deltaTime);
+        transform.localPosition = Vector3.Lerp(transform.localPosition, targetPos, blend);
+        transform.localRotation = Quaternion.Slerp(transform.localRotation, targetRot, blend);
+    }
+
+    private void HandleCombatInput()
     {
         if (inputHandler == null) return;
+
+        // Переключение фонаря (F)
+        if (inputHandler.FlashlightTogglePressed)
+        {
+            ToggleFlashlight();
+        }
+
+        // Переключение режима огня (B)
+        if (inputHandler.FireModeSwitchPressed && canSwitchFireMode)
+        {
+            ToggleFireMode();
+        }
+
+        // Перезарядка (R)
+        if (inputHandler.ReloadPressed && !isReloading && currentAmmo < magazineCapacity && reserveAmmo > 0)
+        {
+            StartCoroutine(ReloadRoutine());
+        }
+
+        // Блокировка стрельбы во время перезарядки или спринта Low-Ready
+        if (isReloading || IsLowReady) return;
 
         bool firePressed = inputHandler.IsFiring;
 
         if (fireMode == FireMode.SemiAuto)
         {
-            if (firePressed && hasReleasedTrigger && Time.time >= nextFireTime)
+            if (firePressed && hasReleasedTrigger)
             {
                 hasReleasedTrigger = false;
-                ExecuteShot();
+                if (currentAmmo > 0)
+                {
+                    if (Time.time >= nextFireTime) ExecuteShot();
+                }
+                else
+                {
+                    // Холостой спуск курка (Dry fire)
+                    BodycamAudioEngine.PlayDryFire(transform.position);
+                }
             }
             else if (!firePressed)
             {
@@ -95,9 +232,21 @@ public class RaycastWeapon : MonoBehaviour
         }
         else // FullAuto
         {
-            if (firePressed && Time.time >= nextFireTime)
+            if (firePressed)
             {
-                ExecuteShot();
+                if (currentAmmo > 0)
+                {
+                    if (Time.time >= nextFireTime) ExecuteShot();
+                }
+                else if (hasReleasedTrigger)
+                {
+                    hasReleasedTrigger = false;
+                    BodycamAudioEngine.PlayDryFire(transform.position);
+                }
+            }
+            else
+            {
+                hasReleasedTrigger = true;
             }
         }
     }
@@ -107,34 +256,135 @@ public class RaycastWeapon : MonoBehaviour
         float fireInterval = 60f / roundsPerMinute;
         nextFireTime = Time.time + fireInterval;
 
-        // 1. Физическая отдача
+        // Уменьшаем боезапас
+        currentAmmo--;
+
+        // 1. Звук выстрела
+        Vector3 shotPos = muzzleTransform != null ? muzzleTransform.position : transform.position;
+        if (weaponType == WeaponType.AK74)
+        {
+            BodycamAudioEngine.PlayAkShot(shotPos);
+        }
+        else
+        {
+            BodycamAudioEngine.PlayPistolShot(shotPos);
+        }
+
+        // 2. Отдача
         if (recoilSpring != null)
         {
             recoilSpring.ApplyRecoilImpulse();
         }
 
-        // 2. Вспышка дульного огня
+        // 3. Дульная вспышка
         if (muzzleFlash != null)
         {
             muzzleFlash.TriggerFlash();
         }
 
-        // 3. Вычисление направления выстрела с разбросом
+        // 4. Анимация затвора пистолета (Blowback / Slide-Lock)
+        if (pistolSlide != null)
+        {
+            pistolSlide.OnFire(currentAmmo <= 0);
+        }
+
+        // 5. Физический выброс гильзы
+        EjectShellCasing();
+
+        // 6. Расчет разброса с учетом Point-Aim
+        float effectiveSpread = currentSpread;
+        if (IsAiming)
+        {
+            effectiveSpread *= aimSpreadMultiplier;
+        }
+
         Vector3 origin = muzzleTransform != null ? muzzleTransform.position : transform.position;
         Vector3 forward = muzzleTransform != null ? muzzleTransform.forward : transform.forward;
+        Vector3 spreadDir = CalculateSpreadDirection(forward, effectiveSpread);
 
-        // Рассчитываем случайный вектор отклонения пули внутри конуса
-        Vector3 spreadDir = CalculateSpreadDirection(forward, currentSpread);
-
-        // Увеличиваем динамический разброс
+        // Наращиваем разброс от выстрела
         currentSpread = Mathf.Min(currentSpread + spreadPerShot, maxSpreadAngle);
 
-        // 4. Raycast трассировка пули
+        // 7. Raycast баллистика
         Ray ray = new Ray(origin, spreadDir);
         if (Physics.Raycast(ray, out RaycastHit hit, maxRange, hitLayers, QueryTriggerInteraction.Ignore))
         {
             ProcessHit(hit);
         }
+    }
+
+    private void EjectShellCasing()
+    {
+        Vector3 ejectPos = ejectionPortTransform != null ? ejectionPortTransform.position : transform.position + transform.right * 0.05f;
+        Quaternion ejectRot = ejectionPortTransform != null ? ejectionPortTransform.rotation : transform.rotation;
+
+        GameObject casingObj = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        casingObj.name = "ShellCasing";
+        casingObj.transform.position = ejectPos;
+        casingObj.transform.rotation = ejectRot;
+
+        if (weaponType == WeaponType.AK74)
+        {
+            // Калибр 5.45x39: удлиненная бутылочная гильза
+            casingObj.transform.localScale = new Vector3(0.012f, 0.024f, 0.012f);
+        }
+        else
+        {
+            // Калибр 9x19: компактная цилиндрическая гильза
+            casingObj.transform.localScale = new Vector3(0.010f, 0.014f, 0.010f);
+        }
+
+        // Латунный материал (Brass)
+        Renderer rend = casingObj.GetComponent<Renderer>();
+        if (rend != null)
+        {
+            Shader litShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (litShader == null) litShader = Shader.Find("Standard");
+            Material brassMat = new Material(litShader);
+            brassMat.color = new Color(0.85f, 0.68f, 0.24f, 1f);
+            brassMat.SetFloat("_Metallic", 0.9f);
+            brassMat.SetFloat("_Smoothness", 0.82f);
+            rend.material = brassMat;
+        }
+
+        // Коллайдер
+        Collider col = casingObj.GetComponent<Collider>();
+        if (col != null) Destroy(col);
+        CapsuleCollider capCol = casingObj.AddComponent<CapsuleCollider>();
+        capCol.radius = 0.5f;
+        capCol.height = 2f;
+        capCol.direction = 1; // Y-axis
+
+        // Rigidbody и скрипт гильзы
+        Rigidbody rb = casingObj.AddComponent<Rigidbody>();
+        rb.mass = weaponType == WeaponType.AK74 ? 0.012f : 0.008f;
+        rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
+
+        ShellCasing shell = casingObj.AddComponent<ShellCasing>();
+
+        // Направление выброса:
+        // АК-74 выбрасывает вверх-вправо с сильным углом
+        Vector3 rightDir = ejectionPortTransform != null ? ejectionPortTransform.right : transform.right;
+        Vector3 upDir = ejectionPortTransform != null ? ejectionPortTransform.up : transform.up;
+        Vector3 fwdDir = ejectionPortTransform != null ? ejectionPortTransform.forward : transform.forward;
+
+        Vector3 linearImpulse;
+        if (weaponType == WeaponType.AK74)
+        {
+            linearImpulse = (rightDir * 3.4f + upDir * 2.2f + fwdDir * Random.Range(-0.8f, 0.4f)) + Random.insideUnitSphere * 0.3f;
+        }
+        else
+        {
+            linearImpulse = (rightDir * 2.8f + upDir * 1.8f - fwdDir * 0.3f) + Random.insideUnitSphere * 0.25f;
+        }
+
+        Vector3 torqueImpulse = new Vector3(
+            Random.Range(-35f, 35f),
+            Random.Range(-50f, 50f),
+            Random.Range(-35f, 35f)
+        );
+
+        shell.Eject(linearImpulse, torqueImpulse);
     }
 
     private Vector3 CalculateSpreadDirection(Vector3 forward, float spreadAngleDegrees)
@@ -155,17 +405,17 @@ public class RaycastWeapon : MonoBehaviour
 
     private void ProcessHit(RaycastHit hit)
     {
-        // Передаем урон компонентам цели
+        // 1. Посылаем урон компонентам цели
         hit.collider.SendMessage("ApplyDamage", damage, SendMessageOptions.DontRequireReceiver);
 
-        // Применяем физический импульс Rigidbody, если объект подвижный
+        // 2. Импульс физическим объектам
         Rigidbody rb = hit.rigidbody;
         if (rb != null && !rb.isKinematic)
         {
-            rb.AddForceAtPosition(-hit.normal * (damage * 0.35f), hit.point, ForceMode.Impulse);
+            rb.AddForceAtPosition(-hit.normal * (damage * 0.4f), hit.point, ForceMode.Impulse);
         }
 
-        // Создаем маркер попадания (спарк/вспышку) в точке удара
+        // 3. Эффект попадания (искры)
         CreateImpactEffect(hit.point, hit.normal);
     }
 
@@ -173,28 +423,112 @@ public class RaycastWeapon : MonoBehaviour
     {
         GameObject spark = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         spark.transform.position = point + normal * 0.02f;
-        spark.transform.localScale = Vector3.one * 0.08f;
-        
+        spark.transform.localScale = Vector3.one * 0.07f;
+
         Collider col = spark.GetComponent<Collider>();
         if (col != null) Destroy(col);
 
         Renderer rend = spark.GetComponent<Renderer>();
         if (rend != null)
         {
-            Material sparkMat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
-            sparkMat.color = new Color(1f, 0.7f, 0.2f, 1f);
+            Shader unlit = Shader.Find("Universal Render Pipeline/Unlit");
+            if (unlit == null) unlit = Shader.Find("Sprites/Default");
+            Material sparkMat = new Material(unlit);
+            sparkMat.color = new Color(1f, 0.75f, 0.2f, 1f);
             rend.material = sparkMat;
         }
 
         Destroy(spark, 0.12f);
     }
 
-    public void SetupReferences(PlayerInputHandler input, Transform muzzle, WeaponRecoilSpring recoil, MuzzleFlashController flash)
+    private IEnumerator ReloadRoutine()
+    {
+        isReloading = true;
+        bool isEmpty = currentAmmo <= 0;
+        float duration = isEmpty ? emptyReloadTime : tacticalReloadTime;
+
+        // 1. Извлечение пустого магазина
+        BodycamAudioEngine.PlayMagOut(transform.position);
+
+        yield return new WaitForSeconds(duration * 0.42f);
+
+        // 2. Вставка нового магазина
+        BodycamAudioEngine.PlayMagIn(transform.position);
+
+        yield return new WaitForSeconds(duration * 0.38f);
+
+        // 3. Досылание патрона в патронник при пустой перезарядке
+        if (isEmpty)
+        {
+            if (weaponType == WeaponType.AK74)
+            {
+                BodycamAudioEngine.PlayBoltRack(transform.position);
+            }
+            else
+            {
+                BodycamAudioEngine.PlaySlideRelease(transform.position);
+                if (pistolSlide != null)
+                {
+                    pistolSlide.ReleaseSlide();
+                }
+            }
+            yield return new WaitForSeconds(duration * 0.20f);
+        }
+
+        // Заполнение боеприпасами
+        int needed = magazineCapacity - currentAmmo;
+        int toLoad = Mathf.Min(needed, reserveAmmo);
+        currentAmmo += toLoad;
+        reserveAmmo -= toLoad;
+
+        isReloading = false;
+    }
+
+    public void ToggleFlashlight()
+    {
+        isFlashlightOn = !isFlashlightOn;
+        if (tacticalFlashlight != null)
+        {
+            tacticalFlashlight.enabled = isFlashlightOn;
+        }
+        BodycamAudioEngine.PlayFlashlightClick(transform.position);
+    }
+
+    public void ToggleFireMode()
+    {
+        fireMode = (fireMode == FireMode.FullAuto) ? FireMode.SemiAuto : FireMode.FullAuto;
+        BodycamAudioEngine.PlaySelectorClick(transform.position);
+    }
+
+    public void SetupReferences(
+        PlayerInputHandler input,
+        Transform muzzle,
+        Transform ejectionPort,
+        WeaponRecoilSpring recoil,
+        MuzzleFlashController flash,
+        Light flashlight,
+        PistolSlideController slide)
     {
         inputHandler = input;
         muzzleTransform = muzzle;
+        ejectionPortTransform = ejectionPort;
         recoilSpring = recoil;
         muzzleFlash = flash;
-        currentSpread = baseSpreadAngle;
+        tacticalFlashlight = flashlight;
+        pistolSlide = slide;
+    }
+
+    public void ConfigureWeaponSpecs(WeaponType type, string name, string caliber, int magCap, int current, int reserve, float rpm, float dmg, FireMode mode, bool canSwitch)
+    {
+        weaponType = type;
+        weaponName = name;
+        caliberName = caliber;
+        magazineCapacity = magCap;
+        currentAmmo = current;
+        reserveAmmo = reserve;
+        roundsPerMinute = rpm;
+        damage = dmg;
+        fireMode = mode;
+        canSwitchFireMode = canSwitch;
     }
 }

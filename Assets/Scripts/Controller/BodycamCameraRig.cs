@@ -64,6 +64,18 @@ public class BodycamCameraRig : MonoBehaviour
     [Tooltip("Интенсивность микровибраций")]
     [SerializeField] private float microJitterIntensity = 0.0012f;
 
+    [Header("Динамический FOV при прицеливании (Point-Aim Zoom)")]
+    [Tooltip("Базовый угол обзора бодикамеры")]
+    [SerializeField] private float baseFov = 92f;
+
+    [Tooltip("Угол обзора при тактическом прицеливании Point-Aim (ПКМ)")]
+    [SerializeField] private float aimFov = 84f;
+
+    [Tooltip("Скорость зума")]
+    [SerializeField] private float fovZoomSpeed = 12f;
+
+    private Camera targetCamera;
+    private float prevBobTimer;
     private float bobTimer;
     private Vector3 currentBobPosition;
     private Quaternion currentBobRotation = Quaternion.identity;
@@ -94,7 +106,19 @@ public class BodycamCameraRig : MonoBehaviour
         UpdatePitch();
         UpdateLagPhysics();
         UpdateProceduralBobbing();
+        UpdateCameraFov();
         ApplyFinalTransforms();
+    }
+
+    private void UpdateCameraFov()
+    {
+        if (targetCamera == null) targetCamera = GetComponentInChildren<Camera>();
+        if (targetCamera != null && inputHandler != null)
+        {
+            float targetFov = inputHandler.IsAiming ? aimFov : baseFov;
+            float blend = 1f - Mathf.Exp(-fovZoomSpeed * Time.deltaTime);
+            targetCamera.fieldOfView = Mathf.Lerp(targetCamera.fieldOfView, targetFov, blend);
+        }
     }
 
     private void UpdatePitch()
@@ -138,7 +162,15 @@ public class BodycamCameraRig : MonoBehaviour
         if (horizontalSpeed > 0.1f && playerController.IsGrounded)
         {
             float freq = inputHandler != null && inputHandler.IsRunning ? runBobFrequency : walkBobFrequency;
+            prevBobTimer = bobTimer;
             bobTimer += Time.deltaTime * freq;
+
+            // Каждый полупериод (шаг левой / правой ноги)
+            if (Mathf.FloorToInt(bobTimer / Mathf.PI) > Mathf.FloorToInt(prevBobTimer / Mathf.PI))
+            {
+                bool isRunning = inputHandler != null && inputHandler.IsRunning;
+                BodycamAudioEngine.PlayFootstep(transform.position, isRunning);
+            }
 
             float sinVertical = Mathf.Sin(bobTimer * 2f);
             float cosHorizontal = Mathf.Cos(bobTimer);
@@ -156,6 +188,7 @@ public class BodycamCameraRig : MonoBehaviour
             currentBobPosition = Vector3.Lerp(currentBobPosition, Vector3.zero, decay);
             currentBobRotation = Quaternion.Slerp(currentBobRotation, Quaternion.identity, decay);
             bobTimer = 0f;
+            prevBobTimer = 0f;
         }
 
         // Микровибрации крепления экшн-камеры

@@ -18,11 +18,17 @@ public class DeadzoneAimController : MonoBehaviour
     [SerializeField] private Transform weaponRigPivot;
 
     [Header("Границы Deadzone (в градусах)")]
-    [Tooltip("Максимальный угол свободного отклонения ствола влево/вправо")]
+    [Tooltip("Максимальный угол свободного отклонения ствола влево/вправо от бедра")]
     [SerializeField] [Range(2f, 25f)] private float maxDeadzoneYaw = 12f;
 
-    [Tooltip("Максимальный угол свободного отклонения ствола вверх/вниз")]
+    [Tooltip("Максимальный угол свободного отклонения ствола вверх/вниз от бедра")]
     [SerializeField] [Range(2f, 20f)] private float maxDeadzonePitch = 8f;
+
+    [Tooltip("Угол Deadzone при прицеливании Point-Aim (ПКМ) - ствол центрируется к прицелу")]
+    [SerializeField] private float aimDeadzoneYaw = 3.0f;
+
+    [Tooltip("Угол вертикального Deadzone при прицеливании Point-Aim (ПКМ)")]
+    [SerializeField] private float aimDeadzonePitch = 2.2f;
 
     [Header("Коэффициенты отклика")]
     [Tooltip("Доля поворота тела при движении мыши внутри мертвой зоны")]
@@ -82,22 +88,26 @@ public class DeadzoneAimController : MonoBehaviour
             targetWeaponPitch = Mathf.Lerp(targetWeaponPitch, 0f, centerDecay);
         }
 
-        // 4. Ограничение углов в пределах Deadzone
+        // 4. Ограничение углов в пределах динамического Deadzone (12° от бедра, 3° при Point-Aim)
+        bool isAiming = inputHandler.IsAiming;
+        float activeMaxYaw = isAiming ? aimDeadzoneYaw : maxDeadzoneYaw;
+        float activeMaxPitch = isAiming ? aimDeadzonePitch : maxDeadzonePitch;
+
         // Если ствол упирается в границу мертвой зоны, весь остаток мыши разворачивает тело
-        if (targetWeaponYaw > maxDeadzoneYaw)
+        if (targetWeaponYaw > activeMaxYaw)
         {
-            float excess = targetWeaponYaw - maxDeadzoneYaw;
-            targetWeaponYaw = maxDeadzoneYaw;
+            float excess = targetWeaponYaw - activeMaxYaw;
+            targetWeaponYaw = activeMaxYaw;
             playerController.RotateBodyYaw(excess);
         }
-        else if (targetWeaponYaw < -maxDeadzoneYaw)
+        else if (targetWeaponYaw < -activeMaxYaw)
         {
-            float excess = targetWeaponYaw + maxDeadzoneYaw;
-            targetWeaponYaw = -maxDeadzoneYaw;
+            float excess = targetWeaponYaw + activeMaxYaw;
+            targetWeaponYaw = -activeMaxYaw;
             playerController.RotateBodyYaw(excess);
         }
 
-        targetWeaponPitch = Mathf.Clamp(targetWeaponPitch, -maxDeadzonePitch, maxDeadzonePitch);
+        targetWeaponPitch = Mathf.Clamp(targetWeaponPitch, -activeMaxPitch, activeMaxPitch);
 
         // 5. Плавная интерполяция вращения оружия
         float blend = 1f - Mathf.Exp(-weaponTrackingSpeed * Time.deltaTime);

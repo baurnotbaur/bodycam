@@ -1,35 +1,53 @@
-﻿using System;
+using System;
 using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
 /// Реалистичный оверлей тактического нагрудного видеорегистратора (Bodycam HUD).
-/// Отображает мигающий индикатор записи, таймкод, статус батареи и данные юнита.
+/// Отображает:
+/// - Мигающий индикатор записи '● REC'
+/// - Точный таймкод со счетчиком кадров UTC+5
+/// - Тактические GPS-координаты локации (Жезказган / Сатпаев)
+/// - Статус активного оружия: название, калибр, режим огня [AUTO]/[SEMI], патроны (30 / 120)
+/// - Статус фонаря и стойки бойца
+/// - Заряд батареи и идентификатор юнита
 /// </summary>
 public class BodycamOverlayUI : MonoBehaviour
 {
-    [Header("UI Элементы")]
-    [Tooltip("Текстовое поле для даты и времени")]
+    [Header("UI Текстовые поля")]
+    [Tooltip("Поле даты и времени (Top-Right)")]
     [SerializeField] private Text timestampText;
 
-    [Tooltip("Иконка или текст индикатора записи '● REC'")]
+    [Tooltip("Индикатор записи '● REC' (Top-Left)")]
     [SerializeField] private Text recIndicatorText;
 
-    [Tooltip("Текстовое поле метаданных оперативника")]
+    [Tooltip("Метаданные оперативника и GPS (Bottom-Left)")]
     [SerializeField] private Text metadataText;
 
-    [Tooltip("Текстовое поле статуса батареи")]
+    [Tooltip("Боевой статус оружия и боезапас (Bottom-Right)")]
+    [SerializeField] private Text weaponStatusText;
+
+    [Tooltip("Статус батареи (Top-Right под таймкодом)")]
     [SerializeField] private Text batteryText;
 
+    [Header("Ссылки на игровые системы")]
+    [SerializeField] private WeaponInventoryController inventoryController;
+    [SerializeField] private PlayerInputHandler inputHandler;
+
     [Header("Настройки")]
-    [Tooltip("Частота мигания индикатора REC (Гц)")]
+    [Tooltip("Частота мигания REC (Гц)")]
     [SerializeField] private float blinkFrequency = 1.0f;
 
-    [Tooltip("Идентификатор подразделения")]
+    [Tooltip("Позывной подразделения")]
     [SerializeField] private string unitCallsign = "UNIT-04 // S-MUNAY TAC-1";
 
-    [Tooltip("Код устройства")]
+    [Tooltip("Модель бодикамеры")]
     [SerializeField] private string deviceModel = "AXON BODY 3 WIDE-CAM";
+
+    // GPS Координаты (Жезказган, Казахстан)
+    private const string GpsLat = "47°47'28\"N";
+    private const string GpsLon = "67°42'15\"E";
+    private const float BaseAltitude = 345.2f;
 
     private float blinkTimer;
     private bool isIndicatorVisible = true;
@@ -37,17 +55,29 @@ public class BodycamOverlayUI : MonoBehaviour
 
     private void Start()
     {
-        if (metadataText != null)
+        FindReferencesIfNull();
+    }
+
+    private void FindReferencesIfNull()
+    {
+        if (inventoryController == null)
         {
-            metadataText.text = $"{unitCallsign}\n{deviceModel}\nSECURE BUFFER 4K/60";
+            inventoryController = FindAnyObjectByType<WeaponInventoryController>();
+        }
+        if (inputHandler == null)
+        {
+            inputHandler = FindAnyObjectByType<PlayerInputHandler>();
         }
     }
 
     private void Update()
     {
+        FindReferencesIfNull();
         UpdateBlink();
         UpdateClock();
         UpdateBattery();
+        UpdateMetadata();
+        UpdateWeaponStatus();
     }
 
     private void UpdateBlink()
@@ -61,8 +91,8 @@ public class BodycamOverlayUI : MonoBehaviour
             if (recIndicatorText != null)
             {
                 recIndicatorText.color = isIndicatorVisible 
-                    ? new Color(0.9f, 0.15f, 0.15f, 0.95f) 
-                    : new Color(0.9f, 0.15f, 0.15f, 0.15f);
+                    ? new Color(0.95f, 0.15f, 0.15f, 0.95f) 
+                    : new Color(0.95f, 0.15f, 0.15f, 0.15f);
             }
         }
     }
@@ -80,18 +110,74 @@ public class BodycamOverlayUI : MonoBehaviour
     {
         if (batteryText == null) return;
 
-        // Медленный разряд батареи со временем
-        batteryLevel -= Time.deltaTime * 0.002f;
+        batteryLevel -= Time.deltaTime * 0.0015f;
         if (batteryLevel < 1f) batteryLevel = 100f;
 
-        batteryText.text = $"[BAT: {batteryLevel:F1}% 3.8V]";
+        batteryText.text = $"[BAT: {batteryLevel:F1}% 3.8V  BUF: OK]";
     }
 
-    public void SetupUI(Text timeText, Text recText, Text metaText, Text batText)
+    private void UpdateMetadata()
+    {
+        if (metadataText == null) return;
+
+        string stance = (inputHandler != null && inputHandler.IsCrouching) ? "CROUCH" : "STAND";
+        string ready = (inventoryController != null && inventoryController.ActiveWeapon != null && inventoryController.ActiveWeapon.IsAiming) 
+            ? "POINT-AIM" 
+            : ((inputHandler != null && inputHandler.IsRunning) ? "LOW-READY" : "HIGH-READY");
+
+        metadataText.text = $"{unitCallsign}\n" +
+                            $"{deviceModel} // 4K/60FPS HDR\n" +
+                            $"GPS: {GpsLat} {GpsLon} ALT: {BaseAltitude:F1}M\n" +
+                            $"STANCE: [{stance}] // STAGE: [{ready}]";
+    }
+
+    private void UpdateWeaponStatus()
+    {
+        if (weaponStatusText == null) return;
+
+        if (inventoryController == null || inventoryController.ActiveWeapon == null)
+        {
+            weaponStatusText.text = "NO WEAPON";
+            return;
+        }
+
+        RaycastWeapon weapon = inventoryController.ActiveWeapon;
+
+        string name = weapon.WeaponName;
+        string caliber = weapon.CaliberName;
+        string mode = weapon.CurrentFireMode == RaycastWeapon.FireMode.FullAuto ? "[AUTO]" : "[SEMI]";
+        string lightStatus = weapon.IsFlashlightOn ? "[LIGHT: ON]" : "[LIGHT: OFF]";
+
+        string ammoDisplay;
+        if (weapon.IsReloading)
+        {
+            ammoDisplay = "<color=#E8941A>[RELOADING...]</color>";
+        }
+        else
+        {
+            int ammo = weapon.CurrentAmmo;
+            int reserve = weapon.ReserveAmmo;
+            if (ammo <= 5)
+            {
+                ammoDisplay = $"<color=#FF3333>{ammo:D2}</color> / {reserve:D3}";
+            }
+            else
+            {
+                ammoDisplay = $"{ammo:D2} / {reserve:D3}";
+            }
+        }
+
+        weaponStatusText.text = $"{name} // {caliber}\n" +
+                                $"{mode} {lightStatus}\n" +
+                                $"AMMO: {ammoDisplay}";
+    }
+
+    public void SetupUI(Text timeText, Text recText, Text metaText, Text batText, Text wepText)
     {
         timestampText = timeText;
         recIndicatorText = recText;
         metadataText = metaText;
         batteryText = batText;
+        weaponStatusText = wepText;
     }
 }

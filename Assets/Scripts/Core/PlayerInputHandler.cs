@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 
 /// <summary>
 /// Централизованный обработчик ввода игрока.
@@ -26,6 +26,12 @@ public class PlayerInputHandler : MonoBehaviour
     private bool isCrouching;
     private bool isFiring;
     private bool isAiming;
+    private bool reloadPressed;
+    private bool fireModeSwitchPressed;
+    private bool flashlightTogglePressed;
+    private bool slot1Pressed;
+    private bool slot2Pressed;
+    private float scrollDelta;
 
     public Vector2 LookDelta => smoothMouseInput ? smoothedLookDelta : rawLookDelta;
     public Vector2 MoveInput => moveInput;
@@ -33,6 +39,12 @@ public class PlayerInputHandler : MonoBehaviour
     public bool IsCrouching => isCrouching;
     public bool IsFiring => isFiring;
     public bool IsAiming => isAiming;
+    public bool ReloadPressed => reloadPressed;
+    public bool FireModeSwitchPressed => fireModeSwitchPressed;
+    public bool FlashlightTogglePressed => flashlightTogglePressed;
+    public bool Slot1Pressed => slot1Pressed;
+    public bool Slot2Pressed => slot2Pressed;
+    public float ScrollDelta => scrollDelta;
 
     private void Awake()
     {
@@ -74,5 +86,12 @@ public class PlayerInputHandler : MonoBehaviour
     {
         isFiring = Input.GetMouseButton(0); // ЛКМ
         isAiming = Input.GetMouseButton(1); // ПКМ
+
+        reloadPressed = Input.GetKeyDown(KeyCode.R);
+        fireModeSwitchPressed = Input.GetKeyDown(KeyCode.B);
+        flashlightTogglePressed = Input.GetKeyDown(KeyCode.F);
+        slot1Pressed = Input.GetKeyDown(KeyCode.Alpha1);
+        slot2Pressed = Input.GetKeyDown(KeyCode.Alpha2);
+        scrollDelta = Input.GetAxisRaw("Mouse ScrollWheel");
     }
 }

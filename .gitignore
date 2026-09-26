@@ -1,4 +1,4 @@
-﻿# Unity generated files and folders
+# Unity generated files and folders
 [Ll]ibrary/
 [Tt]emp/
 [Oo]bj/
@@ -19,6 +19,7 @@
 *.csproj
 *.unityproj
 *.sln
+*.slnx
 *.suo
 *.user
 *.userprefs
